@@ -54,7 +54,7 @@ class JethexaGaitController(Node):
         self.joint_pubs = {}
 
     def setup_pubs_subs(self):
-        self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_cb, 10)
+        self.create_subscription(Twist, 'cmd_vel_degraded', self.cmd_vel_cb, 10)
 
         for leg in self.legs:
             for joint in ['coxa', 'femur', 'tibia']:

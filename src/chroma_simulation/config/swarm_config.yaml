@@ -8,7 +8,7 @@
   custom_bridges:
     - '/model/{name}/cmd_vel@geometry_msgs/msg/Twist]ignition.msgs.Twist'
   custom_remaps:
-    - '/model/{name}/cmd_vel:=cmd_vel'
+    - '/model/{name}/cmd_vel:=cmd_vel_degraded'
 
 .jethexa_template: &jethexa_template
   z: 0.20
@@ -20,6 +20,7 @@
     x_max: -1.0
     fault: 'mobility_penalty'
   custom_bridges:
+    - '/model/{name}/cmd_vel@geometry_msgs/msg/Twist]ignition.msgs.Twist'
     - '/model/{name}/camera@sensor_msgs/msg/Image[ignition.msgs.Image'
     - '/model/{name}/camera_info@sensor_msgs/msg/CameraInfo[ignition.msgs.CameraInfo'
     - '/model/{name}/joint/head_pan_joint/cmd_pos@std_msgs/msg/Float64]ignition.msgs.Double'
@@ -43,6 +44,7 @@
     - '/model/{name}/joint/tibia_joint_RM/cmd_pos@std_msgs/msg/Float64]ignition.msgs.Double'
     - '/model/{name}/joint/tibia_joint_RR/cmd_pos@std_msgs/msg/Float64]ignition.msgs.Double'
   custom_remaps:
+    - '/model/{name}/cmd_vel:=cmd_vel_degraded'
     - '/model/{name}/camera:=camera/image_raw'
     - '/model/{name}/camera_info:=camera/camera_info'
     - '/model/{name}/joint/head_pan_joint/cmd_pos:=joint/head_pan_joint/cmd_pos'
@@ -73,7 +75,7 @@ swarm:
     urdf: 'turtlebot3/robot.urdf.xacro'
     config: 'tb3_sim_profile.yaml'
     x: 0.0
-    y: 0.0
+    y: 2.0
     yaw: 0.0
 
   # tb3_2:
@@ -88,8 +90,8 @@ swarm:
     <<: *jethexa_template
     urdf: 'jethexa/robot.urdf.xacro'
     config: 'jethexa_sim_profile.yaml'
-    x: 2.0
-    y: 0.0
+    x: 0.0
+    y: -2.0
     yaw: 0.0
 
   # jethexa_2:

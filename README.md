@@ -101,14 +101,14 @@ Example: `chroma_bringup/config/tb3_profile.yaml`
     # The baseline health score (0.0 to 1.0)
     capabilities:
       MOBILITY: 0.6
-      VISION: 0.5
+      PERCEPTION: 0.5
       BATTERY: 1.0
       PAYLOAD: 0.4
 
     # Degradation thresholds
     thresholds:
       MOBILITY: 0.3
-      VISION: 0.3
+      PERCEPTION: 0.3
       BATTERY: 0.15
 
     # Multipliers for fault injections
@@ -136,7 +136,7 @@ Example: `chroma_bringup/config/tb3_profile.yaml`
       watchdogs:
         topics: ['odom', 'scan']
         types: ['nav_msgs.msg.Odometry', 'sensor_msgs.msg.LaserScan']
-        capabilities: ['MOBILITY', 'VISION']
+        capabilities: ['MOBILITY', 'PERCEPTION']
         reliability: ['reliable', 'best_effort']
         timeouts: [2.0, 2.0]
 ```
@@ -188,12 +188,6 @@ Once the configuration is set, launching the swarm simulation in Gazebo and runn
 pixi run sim
 ```
 
-#### Start the Dashboard
-
-```bash
-pixi run dash
-```
-
 #### Launch RViz with CHROMA plugins
 
 ```bash
@@ -202,4 +196,4 @@ pixi run rviz
 
 ## License
 
-This project is open-sourced under the **Apache 2.0** License.
+This project is licensed under the **GNU General Public License v3.0** - see the [LICENSE](LICENSE) file for details.

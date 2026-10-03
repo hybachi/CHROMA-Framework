@@ -16,12 +16,11 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     chroma_bringup_dir = get_package_share_directory('chroma_bringup')
+    chroma_sim_dir = get_package_share_directory('chroma_simulation')
 
     use_sim_time = LaunchConfiguration('use_sim_time')
 
-    ws_root = os.environ.get('PIXI_PROJECT_ROOT', '')
-    rviz_config_file = os.path.join(ws_root, 'src', 'chroma_simulation', 'rviz', 'chroma_config.rviz')
-
+    rviz_config_file = os.path.join(chroma_sim_dir, 'rviz', 'chroma_config.rviz')
     tf_aggregator_file = os.path.join(chroma_bringup_dir, 'launch', 'tf_aggregator.launch.py')
 
     use_sim_time_arg = DeclareLaunchArgument(

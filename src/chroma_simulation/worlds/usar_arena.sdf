@@ -407,7 +407,7 @@
       </link>
 
       <!-- Bricks -->
-      <link name="brick_1">
+      <!-- <link name="brick_1">
         <pose>3.2 1.2 0.1 0 0 0.5</pose>
         <collision name="b1_c">
           <geometry>
@@ -434,7 +434,7 @@
             </pbr>
           </material>
         </visual>
-      </link>
+      </link> -->
       <link name="brick_2">
         <pose>2.2 -1.0 0.125 0 0 -0.3</pose>
         <collision name="b2_c">

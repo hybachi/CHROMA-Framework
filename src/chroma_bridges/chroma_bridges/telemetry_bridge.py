@@ -163,10 +163,6 @@ class TelemetryBridge(Node):
 
     # -------- Helpers --------
 
-    def get_safe_list(self, param_name, default_val):
-        val = self.get_parameter(param_name).value
-        return val if val is not None else default_val
-
     def get_msg_class(self, type_string):
         try:
             parts = type_string.split('.')

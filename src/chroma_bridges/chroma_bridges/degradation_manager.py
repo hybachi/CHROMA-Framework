@@ -45,8 +45,8 @@ class DegradationManager(Node):
     def setup_pubs_subs(self):
         self.create_subscription(SwarmStatus, '/swarm/status', self.status_cb, 10)
 
-        self.create_subscription(Twist, 'cmd_vel_raw', self.cmd_vel_cb, 10)
-        self.vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
+        self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_cb, 10)
+        self.vel_pub = self.create_publisher(Twist, 'cmd_vel_degraded', 10)
 
         self.create_subscription(LaserScan, 'scan_raw', self.scan_cb, qos_profile_sensor_data)
         self.scan_pub = self.create_publisher(LaserScan, 'scan', qos_profile_sensor_data)
@@ -71,7 +71,8 @@ class DegradationManager(Node):
 
         baseline = self.baselines.get("MOBILITY", 1.0)
         current = self.caps.get("MOBILITY", 1.0)
-        ratio = (current / baseline) if baseline > 0 else 0.0
+        raw_ratio = (current / baseline) if baseline > 0 else 0.0
+        ratio = raw_ratio ** 2.5
 
         throttled_msg = Twist()
         throttled_msg.linear.x = msg.linear.x * ratio

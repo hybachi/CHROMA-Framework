@@ -1,5 +1,5 @@
 [workspace]
-authors = ["Hiba Anwar <hiba2anwar@gmail.com>"]
+authors = ["Hiba Anwar Sharif <hiba2anwar@gmail.com>"]
 channels = ["https://prefix.dev/robostack-humble", "https://prefix.dev/conda-forge"]
 name = "chroma_ws"
 platforms = ["linux-64", "linux-aarch64"]
@@ -29,19 +29,18 @@ ros-humble-nav2-msgs = ">=1.1.18,<2"
 ros-humble-topic-tools = ">=1.1.1,<2"
 ros-humble-robot-localization = ">=3.5.3,<4"
 pillow = ">=12.2.0,<13"
+matplotlib = ">=3.10.9,<4"
+pandas = ">=3.0.3,<4"
 
 # PC ONLY (linux-64)
 [target.linux-64.dependencies]
 ros-humble-desktop = ">=0.10.0,<0.11" 
 ros-humble-ros-gz-sim = ">=0.244.20,<0.245"
 ros-humble-ros-ign-bridge = ">=0.244.20,<0.245"
-nicegui = ">=3.10.0,<4"
-plotly = ">=6.6.0,<7"
 
 [target.linux-64.tasks]
 sim = "ros2 launch chroma_simulation swarm_sim.launch.py"
 rviz = "ros2 launch chroma_bringup rviz.launch.py"
-dash = "ros2 run chroma_dashboard dashboard"
 build = "colcon build --packages-ignore chroma_dashboard"
 purge = "pkill -9 -f 'ros2|robot_state_publisher|parameter_bridge|capability_manager|nav2_bridge|task_allocator|telemetry_bridge|jethexa|cares|gz sim' || true && ros2 daemon stop && ros2 daemon start"
 
