@@ -15,10 +15,11 @@ from action_msgs.msg import GoalStatus
 from nav2_msgs.action import NavigateToPose
 from chroma_interfaces.msg import Task, TaskAllocation
 
+
 class Nav2Bridge(Node):
 
     def __init__(self):
-        super().__init__('nav2_bridge')
+        super().__init__("nav2_bridge")
 
         self.load_params()
         self.setup_state()
@@ -29,19 +30,19 @@ class Nav2Bridge(Node):
     # -------- Setup --------
 
     def load_params(self):
-        self.declare_parameter('robot_id', 'unknown')
-        self.robot_id = self.get_parameter('robot_id').value
+        self.declare_parameter("robot_id", "unknown")
+        self.robot_id = self.get_parameter("robot_id").value
 
     def setup_state(self):
         self.active_task = None
         self.goal_handle = None
 
     def setup_pubs_subs(self):
-        self.create_subscription(Task, 'execute_waypoint', self.task_cb, 10)
-        self.create_subscription(Task, 'cancel_waypoint', self.cancel_cb, 10)
+        self.create_subscription(Task, "execute_waypoint", self.task_cb, 10)
+        self.create_subscription(Task, "cancel_waypoint", self.cancel_cb, 10)
 
-        self.alloc_pub = self.create_publisher(TaskAllocation, 'execution_status', 10)
-        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        self.alloc_pub = self.create_publisher(TaskAllocation, "execution_status", 10)
+        self.nav_client = ActionClient(self, NavigateToPose, "navigate_to_pose")
 
     # -------- Callbacks --------
 
@@ -57,7 +58,7 @@ class Nav2Bridge(Node):
         self.active_task = msg
 
         goal = NavigateToPose.Goal()
-        goal.pose.header.frame_id = 'map'
+        goal.pose.header.frame_id = "map"
         goal.pose.header.stamp = self.get_clock().now().to_msg()
         goal.pose.pose.position.x = msg.location.x
         goal.pose.pose.position.y = msg.location.y
@@ -134,5 +135,5 @@ def main(args=None):
     rclpy.shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

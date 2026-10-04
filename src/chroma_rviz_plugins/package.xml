@@ -5,16 +5,21 @@
   <version>0.0.0</version>
   <description>Custom RViz2 UI panels for the CHROMA operator dashboard</description>
   <maintainer email="hiba2anwar@gmail.com">H.A. Sharif</maintainer>
-  <license>Apache-2.0</license>
+  <license>GPL-v3</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <depend>ament_index_cpp</depend>
+  <depend>chroma_interfaces</depend>
+  <depend>geometry_msgs</depend>
+  <depend>pluginlib</depend>
   <depend>rclcpp</depend>
   <depend>rviz_common</depend>
-  <depend>pluginlib</depend>
-  <depend>Qt5Widgets</depend>
-  <depend>geometry_msgs</depend>
-  <depend>chroma_interfaces</depend>
+  <depend>visualization_msgs</depend>
+  <depend>yaml_cpp_vendor</depend>
+
+  <build_depend>qtbase5-dev</build_depend>
+  <exec_depend>libqt5-widgets</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

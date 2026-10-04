@@ -1,9 +1,6 @@
 """
 tf_aggregator.launch.py
 Bridges namespaced transforms to the global tree for multi-robot RViz.
-
-Author: H.A. Sharif
-Year: 2026
 """
 
 import os

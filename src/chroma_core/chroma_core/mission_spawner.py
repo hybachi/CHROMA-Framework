@@ -1,130 +1,68 @@
-#!/usr/bin/env python3
-
-"""
-mission_spawner.py
-Automated mission dispatcher for reproducible thesis benchmarking.
-
-Author: H.A. Sharif
-Year: 2026
-"""
-
+import os
 import sys
 import time
+import yaml
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Point
+from ament_index_python.packages import get_package_share_directory
 from chroma_interfaces.msg import Task
+from chroma_core.scenarios import SCENARIOS
 
 class MissionSpawner(Node):
     def __init__(self):
         super().__init__('mission_spawner')
-        
-        # QoS profile with a queue size of 10
         self.task_pub = self.create_publisher(Task, '/mission/tasks', 10)
-        
-        # Allow DDS discovery to connect publishers and subscribers
+        self.task_configs = self.load_task_configs()
         self.get_logger().info("Waiting 2 seconds for DDS network discovery...")
         time.sleep(2.0)
 
-    def create_point(self, x, y, z=0.0):
-        p = Point()
-        p.x = float(x)
-        p.y = float(y)
-        p.z = float(z)
-        return p
+    def load_task_configs(self):
+        try:
+            pkg_share = get_package_share_directory('chroma_bringup')
+            config_path = os.path.join(pkg_share, 'config', 'task_types.yaml')
+            with open(config_path, 'r') as f:
+                return yaml.safe_load(f).get('tasks', {})
+        except Exception as e:
+            self.get_logger().error(f"Failed to load task_types.yaml: {e}")
+            return {}
 
-    def publish_task(self, task_id, task_type, reqs, min_score, loc, target_area=None):
-        msg = Task()
-        msg.task_id = task_id
-        msg.type = task_type
-        msg.priority = 1.0
-        msg.required_capabilities = reqs
-        msg.min_capability_score = min_score
-        msg.location = loc
-        
-        if target_area:
-            msg.target_area = target_area
-            
-        self.task_pub.publish(msg)
-        self.get_logger().info(f"Published Task: {task_id} at ({loc.x}, {loc.y})")
+    def spawn_scenario(self, scenario_name):
+        if scenario_name not in SCENARIOS:
+            self.get_logger().error(f"Unknown scenario: {scenario_name}")
+            return
 
-    def run_nominal(self):
-        """Phase 1: Proves initial math works in the Safe Zone (x=0, y=0)"""
-        self.get_logger().info("--- INITIATING NOMINAL VALIDATION ---")
-        
-        # SEARCH Task -> Best for TB3 (Needs Perception/Mobility)
-        self.publish_task(
-            task_id="NOMINAL_SEARCH",
-            task_type="SEARCH",
-            reqs=["PERCEPTION", "MOBILITY"],
-            min_score=0.4,
-            loc=self.create_point(0.0, 1.5),
-            target_area=[self.create_point(0.5, 2.0)]
-        )
+        self.get_logger().info(f"--- INITIATING {scenario_name.upper()} SCENARIO ---")
 
-        time.sleep(0.5) # Slight stagger
+        for task_def in SCENARIOS[scenario_name]:
+            task_type = task_def["type"]
+            cfg = self.task_configs.get(task_type, {})
 
-        # DELIVERY Task -> Best for JetHexa (Needs Payload/Mobility)
-        self.publish_task(
-            task_id="NOMINAL_DELIVERY",
-            task_type="DELIVERY",
-            reqs=["PAYLOAD", "MOBILITY"],
-            min_score=0.4,
-            loc=self.create_point(0.0, -1.5),
-            target_area=[self.create_point(0.0, -2.5, 0.0)] # z acts as yaw
-        )
+            msg = Task()
+            msg.task_id = task_def["id"]
+            msg.type = task_type
+            msg.priority = 1.0
+            msg.required_capabilities = cfg.get("requires", [])
+            msg.min_capability_score = cfg.get("min_score", 0.4)
+            msg.location = task_def["location"]
+            if "target_area" in task_def:
+                msg.target_area = task_def["target_area"]
 
-    def run_benchmark(self):
-        """Phase 2: The Core A/B Test (Debris Field x=1.0 to 4.0)"""
-        self.get_logger().info("--- INITIATING A/B BENCHMARK ---")
-        
-        # Deep in the Debris Field. TB3 will win the bid, enter zone, and degrade.
-        self.publish_task(
-            task_id="BENCHMARK_DEBRIS",
-            task_type="SEARCH",
-            reqs=["PERCEPTION", "MOBILITY"],
-            min_score=0.4,
-            loc=self.create_point(0.5, 3.5),
-            target_area=[self.create_point(3.5, 1.0)]
-        )
-
-    def run_stress(self):
-        """Phase 3: Systemic Stress Test (Collapsed Office x=-4.0 to -1.0)"""
-        self.get_logger().info("--- INITIATING STRESS TEST (COLLAPSED OFFICE) ---")
-        
-        # Deep in the Office. JetHexa gets penalized here. 
-        self.publish_task(
-            task_id="STRESS_CASCADE",
-            task_type="DELIVERY",
-            reqs=["PAYLOAD", "MOBILITY"],
-            min_score=0.4,
-            loc=self.create_point(-2.5, 1.0),
-            target_area=[self.create_point(-3.5, 1.5, 0.0)]
-        )
+            self.task_pub.publish(msg)
+            self.get_logger().info(f"Published Task: {msg.task_id} at ({msg.location.x}, {msg.location.y})")
+            time.sleep(0.5)
 
 def main(args=None):
     rclpy.init(args=args)
     
     if len(sys.argv) < 2:
-        print("Usage: ros2 run chroma_core mission_spawner.py [nominal | benchmark | stress]")
+        print("Usage: ros2 run chroma_core mission_spawner [nominal | benchmark | stress]")
         sys.exit(1)
 
     scenario = sys.argv[1].lower()
     spawner = MissionSpawner()
+    spawner.spawn_scenario(scenario)
 
-    if scenario == "nominal":
-        spawner.run_nominal()
-    elif scenario == "benchmark":
-        spawner.run_benchmark()
-    elif scenario == "stress":
-        spawner.run_stress()
-    else:
-        spawner.get_logger().error(f"Unknown scenario: {scenario}")
-        print("Available scenarios: nominal, benchmark, stress")
-
-    # Allow time for the network to flush the published messages before exiting
     time.sleep(1.0)
-    
     spawner.destroy_node()
     rclpy.shutdown()
 

@@ -1,9 +1,6 @@
 """
 degradation_manager.py
 Simulates hardware degradation by scaling physical commands and sensor data.
-
-Author: H.A. Sharif
-Year: 2026
 """
 
 import rclpy
@@ -12,112 +9,83 @@ from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import LaserScan
 from chroma_interfaces.msg import SwarmStatus
-import random
+
+from chroma_bridges.ros_utils import get_safe_param
+from chroma_bridges.degradation.motion import throttle_twist
+from chroma_bridges.degradation.sensors import add_scan_noise
+
 
 class DegradationManager(Node):
     def __init__(self):
         super().__init__(
-            'degradation_manager',
+            "degradation_manager",
             allow_undeclared_parameters=True,
-            automatically_declare_parameters_from_overrides=True
+            automatically_declare_parameters_from_overrides=True,
         )
-        self.setup_params()
-        self.setup_state()
-        self.setup_pubs_subs()
-        self.get_logger().info(f"[{self.robot_id}] Degradation Manager Active")
+        self.robot_id = get_safe_param(self, "robot_id", "unknown")
 
-    # -------- Setup --------
+        # Determine which capabilities map to which degradation behaviors dynamically
+        self.target_motion = get_safe_param(
+            self, "degradation_targets.velocity", "MOBILITY"
+        )
+        self.target_laser = get_safe_param(
+            self, "degradation_targets.laser", "PERCEPTION"
+        )
 
-    def setup_params(self):
-        self.robot_id = self.get_parameter('robot_id').value if self.has_parameter('robot_id') else 'unknown'
-
-        yaml_caps = {k: v.value for k, v in self.get_parameters_by_prefix('capabilities').items()}
-        
-        self.baselines = {
-            "MOBILITY": yaml_caps.get("MOBILITY", 1.0),
-            "PERCEPTION": yaml_caps.get("PERCEPTION", 1.0)
+        yaml_caps = {
+            k: v.value for k, v in self.get_parameters_by_prefix("capabilities").items()
         }
 
-    def setup_state(self):
+        self.baselines = {
+            self.target_motion: yaml_caps.get(self.target_motion, 1.0),
+            self.target_laser: yaml_caps.get(self.target_laser, 1.0),
+        }
+
         self.caps = self.baselines.copy()
         self.last_cmd_vel = Twist()
 
-    def setup_pubs_subs(self):
-        self.create_subscription(SwarmStatus, '/swarm/status', self.status_cb, 10)
+        self.create_subscription(SwarmStatus, "/swarm/status", self.status_cb, 10)
+        self.create_subscription(Twist, "cmd_vel", self.cmd_vel_cb, 10)
+        self.vel_pub = self.create_publisher(Twist, "cmd_vel_degraded", 10)
+        self.create_subscription(
+            LaserScan, "scan_raw", self.scan_cb, qos_profile_sensor_data
+        )
+        self.scan_pub = self.create_publisher(
+            LaserScan, "scan", qos_profile_sensor_data
+        )
 
-        self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_cb, 10)
-        self.vel_pub = self.create_publisher(Twist, 'cmd_vel_degraded', 10)
-
-        self.create_subscription(LaserScan, 'scan_raw', self.scan_cb, qos_profile_sensor_data)
-        self.scan_pub = self.create_publisher(LaserScan, 'scan', qos_profile_sensor_data)
-
-    # -------- Callbacks --------
+        self.get_logger().info(f"[{self.robot_id}] Degradation Manager Active")
 
     def status_cb(self, msg):
         if msg.robot_id != self.robot_id:
             return
-        
+
         for cap in msg.capabilities:
             if cap.type in self.caps and self.caps[cap.type] != cap.value:
                 self.caps[cap.type] = cap.value
                 self.get_logger().info(f"{cap.type} changed to: {cap.value:.2f}")
 
-                # Bypass capability update delay
-                if cap.type == "MOBILITY":
+                # Re-evaluate twist immediately if motion capability drops
+                if cap.type == self.target_motion:
                     self.cmd_vel_cb(self.last_cmd_vel)
 
     def cmd_vel_cb(self, msg):
         self.last_cmd_vel = msg
-
-        baseline = self.baselines.get("MOBILITY", 1.0)
-        current = self.caps.get("MOBILITY", 1.0)
-        raw_ratio = (current / baseline) if baseline > 0 else 0.0
-        ratio = raw_ratio ** 2.5
-
-        throttled_msg = Twist()
-        throttled_msg.linear.x = msg.linear.x * ratio
-        throttled_msg.linear.y = msg.linear.y * ratio
-        throttled_msg.angular.z = msg.angular.z * ratio
-        
+        throttled_msg = throttle_twist(
+            msg,
+            self.caps.get(self.target_motion, 1.0),
+            self.baselines.get(self.target_motion, 1.0),
+        )
         self.vel_pub.publish(throttled_msg)
 
     def scan_cb(self, msg):
-        baseline = self.baselines.get("PERCEPTION", 1.0)
-        current = self.caps.get("PERCEPTION", 1.0)
-        ratio = (current / baseline) if baseline > 0 else 0.0
-
-        if ratio >= 0.99 or baseline == 0.0:
-            self.scan_pub.publish(msg)
-            return
-
-        # Additive White Gaussian Noise (AWGN)
-        noise_variance = (1.0 - ratio) * 0.5
-        
-        noisy_ranges = []
-        for r in msg.ranges:
-            if msg.range_min < r < msg.range_max:
-                noisy_r = r + random.gauss(0.0, noise_variance)
-
-                # Ensure the noise doesn't violate sensor bounds
-                noisy_r = max(msg.range_min, min(noisy_r, msg.range_max))
-                noisy_ranges.append(noisy_r)
-            else:
-                noisy_ranges.append(r)
-
-        degraded_msg = LaserScan(
-            header=msg.header,
-            angle_min=msg.angle_min,
-            angle_max=msg.angle_max,
-            angle_increment=msg.angle_increment,
-            time_increment=msg.time_increment,
-            scan_time=msg.scan_time,
-            range_min=msg.range_min,
-            range_max=msg.range_max,
-            intensities=msg.intensities,
-            ranges=noisy_ranges
+        degraded_msg = add_scan_noise(
+            msg,
+            self.caps.get(self.target_laser, 1.0),
+            self.baselines.get(self.target_laser, 1.0),
         )
-        
         self.scan_pub.publish(degraded_msg)
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -126,5 +94,6 @@ def main(args=None):
     node.destroy_node()
     rclpy.shutdown()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

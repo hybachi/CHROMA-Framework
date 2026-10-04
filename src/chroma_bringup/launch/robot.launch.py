@@ -1,15 +1,11 @@
 """
 robot.launch.py
 Spawns the CHROMA core nodes and hardware bridges.
-
-Author: H.A. Sharif
-Year: 2026
 """
 
 import os
+import sys
 import yaml
-import copy
-import tempfile
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
@@ -18,7 +14,9 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
-from ament_index_python.packages import get_package_share_directory
+
+sys.path.insert(0, os.path.dirname(__file__))
+from _yaml_utils import merge_dicts, write_temp_yaml
 
 def generate_launch_description():
     robot_id = LaunchConfiguration('robot_id')
@@ -36,43 +34,15 @@ def generate_launch_description():
     ]
 
     chroma_nodes = [
-        # Core Nodes
-        Node(
-            package='chroma_core', executable='capability_manager',
-            namespace=robot_id, name='capability_manager',
-            parameters=[config_path, {'robot_id': robot_id}], output='screen'
-        ),
-        Node(
-            package='chroma_core', executable='task_allocator',
-            namespace=robot_id, name='task_allocator',
-            parameters=[config_path, {'robot_id': robot_id}], output='screen'
-        ),
-        Node(
-            package='chroma_core', executable='mission_executor',
-            namespace=robot_id, name='mission_executor',
-            parameters=[config_path, {'robot_id': robot_id}], output='screen'
-        ),
-
-        # Bridge Nodes
-        Node(
-            package='chroma_bridges', executable='nav2_bridge',
-            namespace=robot_id, parameters=[{'robot_id': robot_id}],
-            condition=LaunchConfigurationEquals('execution_interface', 'nav2')
-        ),
-        Node(
-            package='chroma_bridges', executable='telemetry_bridge',
-            namespace=robot_id, parameters=[config_path, {'robot_id': robot_id}],
-            condition=LaunchConfigurationEquals('telemetry_interface', 'standard')
-        ),
-        Node(
-            package='chroma_bridges', executable='degradation_manager',
-            namespace=robot_id, parameters=[config_path, {'robot_id': robot_id}],
-        ),
+        Node(package='chroma_core', executable='capability_manager', namespace=robot_id, name='capability_manager', parameters=[config_path, {'robot_id': robot_id}], output='screen'),
+        Node(package='chroma_core', executable='task_allocator', namespace=robot_id, name='task_allocator', parameters=[config_path, {'robot_id': robot_id}], output='screen'),
+        Node(package='chroma_core', executable='mission_executor', namespace=robot_id, name='mission_executor', parameters=[config_path, {'robot_id': robot_id}], output='screen'),
+        Node(package='chroma_bridges', executable='nav2_bridge', namespace=robot_id, parameters=[{'robot_id': robot_id}], condition=LaunchConfigurationEquals('execution_interface', 'nav2')),
+        Node(package='chroma_bridges', executable='telemetry_bridge', namespace=robot_id, parameters=[config_path, {'robot_id': robot_id}], condition=LaunchConfigurationEquals('telemetry_interface', 'standard')),
+        Node(package='chroma_bridges', executable='degradation_manager', namespace=robot_id, parameters=[config_path, {'robot_id': robot_id}]),
     ]
 
-    nav2_stack = OpaqueFunction(function=launch_nav2)
-    
-    return LaunchDescription(args + chroma_nodes + [nav2_stack]) 
+    return LaunchDescription(args + chroma_nodes + [OpaqueFunction(function=launch_nav2)]) 
 
 def launch_nav2(context, *args, **kwargs):
     bringup_dir = get_package_share_directory('chroma_bringup')
@@ -85,7 +55,6 @@ def launch_nav2(context, *args, **kwargs):
     if not nav2_config.get('enabled', False):
         return []
 
-    # Prioritize launch arguments over profile defaults
     pose_config = nav2_config.get('initial_pose', {})
     init_x = float(context.launch_configurations.get('initial_x') or pose_config.get('x', 0.0))
     init_y = float(context.launch_configurations.get('initial_y') or pose_config.get('y', 0.0))
@@ -97,60 +66,28 @@ def launch_nav2(context, *args, **kwargs):
 
     return [
         IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                os.path.join(bringup_dir, 'launch', 'nav2.launch.py')
-            ),
-            launch_arguments={
-                'robot_id': robot_id,
-                'map_yaml': map_path,
-                'nav2_params': params_path,
-                'use_sim_time': use_sim_time,
-            }.items()
+            PythonLaunchDescriptionSource(os.path.join(bringup_dir, 'launch', 'nav2.launch.py')),
+            launch_arguments={'robot_id': robot_id, 'map_yaml': map_path, 'nav2_params': params_path, 'use_sim_time': use_sim_time}.items()
         )
     ]
 
-# -------- Helpers --------
-
 def build_nav2_params(bringup_dir, nav2_cfg, init_x, init_y, init_yaw):
     base_path = os.path.join(bringup_dir, 'config', 'nav2', 'nav2_base.yaml')
-    override_name = nav2_cfg.get('params_file', 'nav2_tb3.yaml')
-    override_path = os.path.join(bringup_dir, 'config', 'nav2', override_name)
+    override_path = os.path.join(bringup_dir, 'config', 'nav2', nav2_cfg.get('params_file', 'nav2_tb3.yaml'))
 
-    # Support robot specific nav2 overrides
     with open(base_path, 'r') as f_base, open(override_path, 'r') as f_over:
         merged = merge_dicts(yaml.safe_load(f_base), yaml.safe_load(f_over))
 
-    # Nav2 ignores args for initial pose, set AMCL params directly
     amcl_params = merged.setdefault('amcl', {}).setdefault('ros__parameters', {})
     amcl_params['set_initial_pose'] = True
     amcl_params['initial_pose'] = {'x': init_x, 'y': init_y, 'yaw': init_yaw}
 
     return write_temp_yaml(merged, 'nav2_params_')
 
-def merge_dicts(base, override):
-    for key, value in override.items():
-        if isinstance(value, dict) and key in base:
-            merge_dicts(base[key], value)
-        else:
-            base[key] = copy.deepcopy(value)
-    return base
-
 def build_map_yaml(bringup_dir, nav2_cfg):
     maps_dir = os.path.join(bringup_dir, 'config', 'maps')
-    map_name = nav2_cfg.get('map_yaml', 'empty_map.yaml')
-
-    with open(os.path.join(maps_dir, map_name), 'r') as f:
+    with open(os.path.join(maps_dir, nav2_cfg.get('map_yaml', 'empty_map.yaml')), 'r') as f:
         map_data = yaml.safe_load(f)
 
-    # Nav2 requires absolute paths for map images
     map_data['image'] = os.path.join(maps_dir, map_data['image'])
-    
     return write_temp_yaml(map_data, 'map_cfg_')
-
-def write_temp_yaml(data, prefix):
-    # Prevents race conditions during multi-robot spawn
-    tmp = tempfile.NamedTemporaryFile(mode='w', prefix=prefix, suffix='.yaml', delete=False)
-    yaml.dump(data, tmp)
-    tmp.close()
-    
-    return tmp.name

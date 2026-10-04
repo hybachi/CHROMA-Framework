@@ -16,7 +16,7 @@ setup(
     maintainer='H.A. Sharif',
     maintainer_email='hiba2anwar@gmail.com',
     description='Hardware bridges for the CHROMA framework',
-    license='Apache-2.0',
+    license='GPL-v3',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [

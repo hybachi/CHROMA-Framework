@@ -1,27 +1,33 @@
 #include "chroma_rviz_plugins/mission_panel.hpp"
-#include <pluginlib/class_list_macros.hpp>
-#include <rviz_common/display_context.hpp>
-#include <rviz_common/ros_integration/ros_node_abstraction_iface.hpp>
-#include <QString>
+
+#include <yaml-cpp/yaml.h>
+
+#include <QVBoxLayout>
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <cstdlib>
 #include <ctime>
+#include <pluginlib/class_list_macros.hpp>
+
+#include "chroma_rviz_plugins/common/marker_factory.hpp"
+#include "chroma_rviz_plugins/common/ros_node_helper.hpp"
+#include "chroma_rviz_plugins/common/theme.hpp"
 
 namespace chroma_rviz_plugins
 {
 
-    MissionPanel::MissionPanel(QWidget *parent) : rviz_common::Panel(parent)
+    MissionPanel::MissionPanel(QWidget* parent) : rviz_common::Panel(parent)
     {
         std::srand(std::time(nullptr));
 
-        QVBoxLayout *layout = new QVBoxLayout;
+        QVBoxLayout* layout = new QVBoxLayout;
+
         task_type_dropdown_ = new QComboBox();
-        task_type_dropdown_->addItem("SEARCH");
-        task_type_dropdown_->addItem("DELIVERY");
         layout->addWidget(new QLabel("Select Task Type:"));
         layout->addWidget(task_type_dropdown_);
 
-        req_label_ = new QLabel("Requires: [VISION, MOBILITY]");
-        req_label_->setStyleSheet("font-size: 10px; color: #64748B; font-style: italic; margin-bottom: 8px;");
+        req_label_ = new QLabel("Requires: []");
+        req_label_->setStyleSheet(
+            QString("font-size: 10px; color: %1; font-style: italic; margin-bottom: 8px;").arg(theme::kTextMuted));
         layout->addWidget(req_label_);
 
         status_label_ = new QLabel("Points captured: 0/2\nUse 'Publish Point' tool on the map.");
@@ -43,16 +49,61 @@ namespace chroma_rviz_plugins
 
     MissionPanel::~MissionPanel() = default;
 
+    void MissionPanel::loadTaskConfigs()
+    {
+        try
+        {
+            std::string pkg_share = ament_index_cpp::get_package_share_directory("chroma_bringup");
+            YAML::Node config = YAML::LoadFile(pkg_share + "/config/task_types.yaml");
+
+            if (config["tasks"])
+            {
+                for (YAML::const_iterator it = config["tasks"].begin(); it != config["tasks"].end(); ++it)
+                {
+                    TaskConfig tc;
+                    tc.name = it->first.as<std::string>();
+                    tc.min_score = it->second["min_score"].as<float>();
+                    tc.marker_type = it->second["marker_type"].as<std::string>();
+
+                    if (it->second["requires"])
+                    {
+                        for (const auto& req : it->second["requires"])
+                        {
+                            tc.
+                                requires
+                                .push_back(req.as<std::string>());
+                        }
+                    }
+
+                    task_configs_[tc.name] = tc;
+                    task_type_dropdown_->addItem(QString::fromStdString(tc.name));
+                }
+            }
+        }
+        catch (const std::exception& e)
+        {
+            // Fallback if YAML is missing
+            task_type_dropdown_->addItem("SEARCH");
+            task_type_dropdown_->addItem("DELIVERY");
+
+            task_configs_["SEARCH"] = {"SEARCH", {"PERCEPTION", "MOBILITY"}, 0.4f, "box"};
+            task_configs_["DELIVERY"] = {"DELIVERY", {"PAYLOAD", "MOBILITY"}, 0.4f, "line"};
+        }
+    }
+
     void MissionPanel::onInitialize()
     {
-        node_ = this->getDisplayContext()->getRosNodeAbstraction().lock()->get_raw_node();
+        node_ = common::getRosNode(this->getDisplayContext());
+
+        loadTaskConfigs();
 
         point_sub_ = node_->create_subscription<geometry_msgs::msg::PointStamped>(
-            "/clicked_point", 10,
-            std::bind(&MissionPanel::pointCallback, this, std::placeholders::_1));
+            "/clicked_point", 10, std::bind(&MissionPanel::pointCallback, this, std::placeholders::_1));
 
         task_pub_ = node_->create_publisher<chroma_interfaces::msg::Task>("/mission/tasks", 10);
         marker_pub_ = node_->create_publisher<visualization_msgs::msg::MarkerArray>("/mission/markers", 10);
+
+        updateUI();
     }
 
     void MissionPanel::pointCallback(const geometry_msgs::msg::PointStamped::SharedPtr msg)
@@ -61,7 +112,7 @@ namespace chroma_rviz_plugins
         {
             clicked_points_.push_back(msg->point);
             updateUI();
-            publishMarkers(false);
+            publishPendingMarkers();
         }
     }
 
@@ -76,36 +127,32 @@ namespace chroma_rviz_plugins
     void MissionPanel::onPublishClicked()
     {
         if (clicked_points_.size() < 2)
+        {
             return;
+        }
+
+        std::string task_type = task_type_dropdown_->currentText().toStdString();
+        TaskConfig cfg = task_configs_[task_type];
 
         auto task_msg = chroma_interfaces::msg::Task();
-        int random_id = std::rand() % 10000;
-        task_msg.task_id = "TASK_" + std::to_string(random_id);
-        task_msg.type = task_type_dropdown_->currentText().toStdString();
+        task_msg.task_id = "TASK_" + std::to_string(std::rand() % 10000);
+        task_msg.type = task_type;
         task_msg.priority = 1.0;
-
         task_msg.location = clicked_points_[0];
         task_msg.target_area.push_back(clicked_points_[1]);
-
-        if (task_msg.type == "SEARCH")
-        {
-            task_msg.required_capabilities = {"PERCEPTION", "MOBILITY"};
-            task_msg.min_capability_score = 0.4;
-        }
-        else
-        {
-            task_msg.required_capabilities = {"PAYLOAD", "MOBILITY"};
-            task_msg.min_capability_score = 0.4;
-        }
+        task_msg.required_capabilities = cfg.
+                                             requires;
+        task_msg.min_capability_score = cfg.min_score;
 
         task_pub_->publish(task_msg);
 
-        publishMarkers(true, task_msg.task_id);
+        publishConfirmedTaskMarker(task_msg.task_id);
 
         clearPendingMarkers();
         clicked_points_.clear();
 
-        status_label_->setText(QString("Mission %1 Published!\nWaiting for new points...").arg(QString::fromStdString(task_msg.task_id)));
+        status_label_->setText(
+            QString("Mission %1 Published!\nWaiting for new points...").arg(QString::fromStdString(task_msg.task_id)));
         publish_btn_->setEnabled(false);
     }
 
@@ -114,207 +161,165 @@ namespace chroma_rviz_plugins
         status_label_->setText(QString("Points captured: %1/2").arg(clicked_points_.size()));
         publish_btn_->setEnabled(clicked_points_.size() == 2);
 
-        if (task_type_dropdown_->currentText() == "SEARCH") {
-            req_label_->setText("Requires: [VISION, MOBILITY]");
-        } else {
-            req_label_->setText("Requires: [PAYLOAD, MOBILITY]");
-        }
+        std::string task_type = task_type_dropdown_->currentText().toStdString();
+        TaskConfig cfg = task_configs_[task_type];
 
-        if (clicked_points_.size() > 0)
+        std::string req_str = "Requires: [";
+        for (size_t i = 0; i < cfg.requires.size(); ++i)
         {
-            publishMarkers(false);
+            req_str += cfg.
+                           requires[
+                               i];
+            if (i < cfg.requires.size() - 1)
+                req_str += ", ";
+        }
+        req_str += "]";
+
+        req_label_->setText(QString::fromStdString(req_str));
+
+        if (!clicked_points_.empty())
+        {
+            publishPendingMarkers();
         }
     }
 
     void MissionPanel::clearPendingMarkers()
     {
         visualization_msgs::msg::MarkerArray marker_array;
-        for (int i = 0; i < 15; i++)
-        {
-            visualization_msgs::msg::Marker m;
-            m.header.frame_id = "map";
-            m.ns = "pending_task";
-            m.id = i;
-            m.action = visualization_msgs::msg::Marker::DELETE;
-            marker_array.markers.push_back(m);
-        }
+        marker_array.markers.push_back(common::makeDeleteAll("pending_task"));
         marker_pub_->publish(marker_array);
     }
 
-    void MissionPanel::publishMarkers(bool is_published, std::string task_id)
+    void MissionPanel::buildSearchMarkers(visualization_msgs::msg::MarkerArray& array, const std::string& ns,
+                                          const rclcpp::Time& now)
     {
-        visualization_msgs::msg::MarkerArray marker_array;
+        geometry_msgs::msg::Point mid_pt;
+        mid_pt.x = (clicked_points_[0].x + clicked_points_[1].x) / 2.0;
+        mid_pt.y = (clicked_points_[0].y + clicked_points_[1].y) / 2.0;
+        mid_pt.z = 0.3;
 
-        std::string ns = is_published ? ("task_" + task_id) : "pending_task";
+        geometry_msgs::msg::Point box_pos = mid_pt;
+        box_pos.z = 0.01;
+        float w = std::abs(clicked_points_[0].x - clicked_points_[1].x);
+        float h = std::abs(clicked_points_[0].y - clicked_points_[1].y);
 
-        float r = is_published ? 0.1 : 0.9;
-        float g = is_published ? 0.9 : 0.1;
-        float b = 0.1;
+        theme::Color box_color = theme::kMarkerPending;
+        box_color.a = 0.2f;
+
+        array.markers.push_back(common::makeCube(box_pos, ns, 3, w, h, 0.01, box_color, now));
+    }
+
+    void MissionPanel::buildDeliveryMarkers(visualization_msgs::msg::MarkerArray& array, const std::string& ns,
+                                            const rclcpp::Time& now)
+    {
+        array.markers.push_back(
+            common::makeLine(clicked_points_[0], clicked_points_[1], ns, 3, theme::kMarkerPending, 0.04, now));
+
+        geometry_msgs::msg::Point label_a_pos = clicked_points_[0];
+        label_a_pos.z = 0.15;
+        geometry_msgs::msg::Point label_b_pos = clicked_points_[1];
+        label_b_pos.z = 0.15;
+
+        array.markers.push_back(common::makeTextLabel(label_a_pos, ns, 4, "A", theme::kMarkerText, 0.15, now));
+        array.markers.push_back(common::makeTextLabel(label_b_pos, ns, 5, "B", theme::kMarkerText, 0.15, now));
+    }
+
+    void MissionPanel::publishPendingMarkers()
+    {
+        visualization_msgs::msg::MarkerArray array;
+        auto now = node_->now();
+        std::string ns = "pending_task";
 
         for (size_t i = 0; i < clicked_points_.size(); i++)
         {
-            // The Sphere
-            visualization_msgs::msg::Marker sphere;
-            sphere.header.frame_id = "map";
-            sphere.header.stamp = node_->now();
-            sphere.ns = ns;
-            sphere.id = i;
-            sphere.type = visualization_msgs::msg::Marker::SPHERE;
-            sphere.action = visualization_msgs::msg::Marker::ADD;
-            sphere.pose.position = clicked_points_[i];
-            sphere.pose.position.z = 0.05;
-            sphere.scale.x = 0.1;
-            sphere.scale.y = 0.1;
-            sphere.scale.z = 0.1;
-            sphere.color.r = r;
-            sphere.color.g = g;
-            sphere.color.b = b;
-            sphere.color.a = 0.8;
-            marker_array.markers.push_back(sphere);
+            auto pos = clicked_points_[i];
+            pos.z = 0.05;
 
-            // The Coordinate Label
-            visualization_msgs::msg::Marker coord_text;
-            coord_text.header.frame_id = "map";
-            coord_text.header.stamp = node_->now();
-            coord_text.ns = ns;
-            coord_text.id = 10 + i;
-            coord_text.type = visualization_msgs::msg::Marker::TEXT_VIEW_FACING;
-            coord_text.action = visualization_msgs::msg::Marker::ADD;
+            array.markers.push_back(common::makeSphere(pos, ns, i, theme::kMarkerPending, 0.1, now));
 
-            coord_text.pose.position = clicked_points_[i];
-            if (i == 0)
-            {
-                coord_text.pose.position.x += 0.30; // Shift right
-            }
-            else
-            {
-                coord_text.pose.position.x -= 0.30; // Shift left
-            }
-            coord_text.pose.position.z = 0.05;
-
-            coord_text.scale.x = 0.0;
-            coord_text.scale.y = 0.0;
-            coord_text.scale.z = 0.1;
-
-            coord_text.color.r = 0.3;
-            coord_text.color.g = 0.3;
-            coord_text.color.b = 0.3;
-            coord_text.color.a = 1.0;
-
-            QString coord_str = QString("(%1,%2)")
-                                    .arg(clicked_points_[i].x, 0, 'f', 2)
-                                    .arg(clicked_points_[i].y, 0, 'f', 2);
-            coord_text.text = coord_str.toStdString();
-
-            marker_array.markers.push_back(coord_text);
+            auto label_pos = pos;
+            label_pos.x += (i == 0) ? 0.30 : -0.30;
+            QString coord_str = QString("(%1,%2)").arg(pos.x, 0, 'f', 2).arg(pos.y, 0, 'f', 2);
+            array.markers.push_back(common::makeTextLabel(label_pos, ns, 10 + i, coord_str.toStdString(),
+                                                          theme::kMarkerTextDark, 0.1, now));
         }
 
         if (clicked_points_.size() == 2)
         {
             std::string task_type = task_type_dropdown_->currentText().toStdString();
+            TaskConfig cfg = task_configs_[task_type];
 
-            visualization_msgs::msg::Marker text;
-            text.header.frame_id = "map";
-            text.header.stamp = node_->now();
-            text.ns = ns;
-            text.id = 2;
-            text.type = visualization_msgs::msg::Marker::TEXT_VIEW_FACING;
-            text.action = visualization_msgs::msg::Marker::ADD;
-            text.pose.position.x = (clicked_points_[0].x + clicked_points_[1].x) / 2.0;
-            text.pose.position.y = (clicked_points_[0].y + clicked_points_[1].y) / 2.0;
-            text.pose.position.z = 0.3;
-            text.scale.z = 0.18;
+            geometry_msgs::msg::Point mid_pt;
+            mid_pt.x = (clicked_points_[0].x + clicked_points_[1].x) / 2.0;
+            mid_pt.y = (clicked_points_[0].y + clicked_points_[1].y) / 2.0;
+            mid_pt.z = 0.3;
 
-            text.color.r = 0.2;
-            text.color.g = 0.2;
-            text.color.b = 0.2;
-            text.color.a = 0.8;
+            array.markers.push_back(
+                common::makeTextLabel(mid_pt, ns, 2, "Publish\n" + task_type, theme::kMarkerText, 0.18, now));
 
-            if (task_type == "SEARCH")
+            if (cfg.marker_type == "box")
             {
-                text.text = is_published ? ("SEARCH\n" + task_id) : "Publish\nSearch";
-
-                visualization_msgs::msg::Marker box;
-                box.header.frame_id = "map";
-                box.header.stamp = node_->now();
-                box.ns = ns;
-                box.id = 3;
-                box.type = visualization_msgs::msg::Marker::CUBE;
-                box.action = visualization_msgs::msg::Marker::ADD;
-                box.pose.position.x = text.pose.position.x;
-                box.pose.position.y = text.pose.position.y;
-                box.pose.position.z = 0.01;
-                box.scale.x = std::abs(clicked_points_[0].x - clicked_points_[1].x);
-                box.scale.y = std::abs(clicked_points_[0].y - clicked_points_[1].y);
-                box.scale.z = 0.01;
-                box.color.r = r;
-                box.color.g = g;
-                box.color.b = b;
-                box.color.a = 0.2;
-                marker_array.markers.push_back(box);
+                buildSearchMarkers(array, ns, now);
             }
-            else if (task_type == "DELIVERY")
+            else
             {
-                text.text = is_published ? ("DELIVERY\n" + task_id) : "Publish\nDelivery";
-
-                visualization_msgs::msg::Marker line;
-                line.header.frame_id = "map";
-                line.header.stamp = node_->now();
-                line.ns = ns;
-                line.id = 3;
-                line.type = visualization_msgs::msg::Marker::LINE_STRIP;
-                line.action = visualization_msgs::msg::Marker::ADD;
-                line.scale.x = 0.04;
-                line.color.r = r;
-                line.color.g = g;
-                line.color.b = b;
-                line.color.a = 0.3;
-                line.points.push_back(clicked_points_[0]);
-                line.points.push_back(clicked_points_[1]);
-                marker_array.markers.push_back(line);
-
-                // Label Point A
-                visualization_msgs::msg::Marker label_a;
-                label_a.header.frame_id = "map";
-                label_a.header.stamp = node_->now();
-                label_a.ns = ns;
-                label_a.id = 4;
-                label_a.type = visualization_msgs::msg::Marker::TEXT_VIEW_FACING;
-                label_a.action = visualization_msgs::msg::Marker::ADD;
-                label_a.pose.position = clicked_points_[0];
-                label_a.pose.position.z = 0.15;
-                label_a.scale.z = 0.15;
-                label_a.color.r = 0.2;
-                label_a.color.g = 0.2;
-                label_a.color.b = 0.2;
-                label_a.color.a = 0.9;
-                label_a.text = "A";
-                marker_array.markers.push_back(label_a);
-
-                // Label Point B
-                visualization_msgs::msg::Marker label_b;
-                label_b.header.frame_id = "map";
-                label_b.header.stamp = node_->now();
-                label_b.ns = ns;
-                label_b.id = 5;
-                label_b.type = visualization_msgs::msg::Marker::TEXT_VIEW_FACING;
-                label_b.action = visualization_msgs::msg::Marker::ADD;
-                label_b.pose.position = clicked_points_[1];
-                label_b.pose.position.z = 0.15;
-                label_b.scale.z = 0.15;
-                label_b.color.r = 0.2;
-                label_b.color.g = 0.2;
-                label_b.color.b = 0.2;
-                label_b.color.a = 0.9;
-                label_b.text = "B";
-                marker_array.markers.push_back(label_b);
+                buildDeliveryMarkers(array, ns, now);
             }
-            marker_array.markers.push_back(text);
         }
 
-        marker_pub_->publish(marker_array);
+        marker_pub_->publish(array);
     }
 
-}
+    void MissionPanel::publishConfirmedTaskMarker(const std::string& task_id)
+    {
+        visualization_msgs::msg::MarkerArray array;
+        auto now = node_->now();
+        std::string ns = "task_" + task_id;
+        std::string task_type = task_type_dropdown_->currentText().toStdString();
+        TaskConfig cfg = task_configs_[task_type];
+
+        for (size_t i = 0; i < clicked_points_.size(); i++)
+        {
+            auto pos = clicked_points_[i];
+            pos.z = 0.05;
+            array.markers.push_back(common::makeSphere(pos, ns, i, theme::kMarkerConfirmed, 0.1, now));
+        }
+
+        geometry_msgs::msg::Point mid_pt;
+        mid_pt.x = (clicked_points_[0].x + clicked_points_[1].x) / 2.0;
+        mid_pt.y = (clicked_points_[0].y + clicked_points_[1].y) / 2.0;
+        mid_pt.z = 0.3;
+
+        array.markers.push_back(
+            common::makeTextLabel(mid_pt, ns, 2, task_type + "\n" + task_id, theme::kMarkerText, 0.18, now));
+
+        if (cfg.marker_type == "box")
+        {
+            geometry_msgs::msg::Point box_pos = mid_pt;
+            box_pos.z = 0.01;
+            float w = std::abs(clicked_points_[0].x - clicked_points_[1].x);
+            float h = std::abs(clicked_points_[0].y - clicked_points_[1].y);
+
+            theme::Color box_color = theme::kMarkerConfirmed;
+            box_color.a = 0.2f;
+            array.markers.push_back(common::makeCube(box_pos, ns, 3, w, h, 0.01, box_color, now));
+        }
+        else
+        {
+            array.markers.push_back(
+                common::makeLine(clicked_points_[0], clicked_points_[1], ns, 3, theme::kMarkerConfirmed, 0.04, now));
+
+            geometry_msgs::msg::Point label_a_pos = clicked_points_[0];
+            label_a_pos.z = 0.15;
+            geometry_msgs::msg::Point label_b_pos = clicked_points_[1];
+            label_b_pos.z = 0.15;
+            array.markers.push_back(common::makeTextLabel(label_a_pos, ns, 4, "A", theme::kMarkerText, 0.15, now));
+            array.markers.push_back(common::makeTextLabel(label_b_pos, ns, 5, "B", theme::kMarkerText, 0.15, now));
+        }
+
+        marker_pub_->publish(array);
+    }
+
+}  // namespace chroma_rviz_plugins
 
 PLUGINLIB_EXPORT_CLASS(chroma_rviz_plugins::MissionPanel, rviz_common::Panel)

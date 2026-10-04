@@ -1,62 +1,44 @@
-#ifndef CHROMA_RVIZ_PLUGINS__STATUS_PANEL_HPP_
-#define CHROMA_RVIZ_PLUGINS__STATUS_PANEL_HPP_
-
-#include <rviz_common/panel.hpp>
-#include <rclcpp/rclcpp.hpp>
-#include <chroma_interfaces/msg/swarm_status.hpp>
+#pragma once
 
 #include <QTimer>
-#include <QScrollArea>
 #include <QVBoxLayout>
-#include <QFrame>
-#include <QLabel>
-#include <QProgressBar>
+#include <chroma_interfaces/msg/swarm_status.hpp>
 #include <map>
 #include <mutex>
+#include <rclcpp/rclcpp.hpp>
+#include <rviz_common/panel.hpp>
 #include <string>
+
+#include "chroma_rviz_plugins/robot_card.hpp"
 
 namespace chroma_rviz_plugins
 {
-  class RobotCard : public QFrame
-  {
-    Q_OBJECT
-  public:
-    explicit RobotCard(QWidget *parent = nullptr);
-    void updateData(const chroma_interfaces::msg::SwarmStatus &msg);
+    class StatusPanel : public rviz_common::Panel
+    {
+        Q_OBJECT
+    public:
+        explicit StatusPanel(QWidget* parent = nullptr);
+        ~StatusPanel() override;
+        void onInitialize() override;
 
-  private:
-    QLabel *id_label_;
-    QLabel *type_label_;
-    QVBoxLayout *caps_layout_;
-    std::map<std::string, QProgressBar *> cap_bars_;
-    std::map<std::string, QLabel *> cap_vals_;
-  };
+    protected Q_SLOTS:
+        void updateUI();
 
-  class StatusPanel : public rviz_common::Panel
-  {
-    Q_OBJECT
-  public:
-    explicit StatusPanel(QWidget *parent = nullptr);
-    ~StatusPanel() override;
-    void onInitialize() override;
+    private:
+        void statusCallback(const chroma_interfaces::msg::SwarmStatus::SharedPtr msg);
 
-  protected Q_SLOTS:
-    void updateUI();
+        // UI Widgets
+        QVBoxLayout* scroll_layout_;
+        QTimer* update_timer_;
 
-  private:
-    void statusCallback(const chroma_interfaces::msg::SwarmStatus::SharedPtr msg);
+        // ROS Handles
+        rclcpp::Node::SharedPtr node_;
+        rclcpp::Subscription<chroma_interfaces::msg::SwarmStatus>::SharedPtr status_sub_;
 
-    QVBoxLayout *scroll_layout_;
-    std::map<std::string, RobotCard *> robot_cards_;
+        // State
+        std::map<std::string, RobotCard*> robot_cards_;
+        std::map<std::string, chroma_interfaces::msg::SwarmStatus> latest_statuses_;
+        std::mutex status_mutex_;
+    };
 
-    rclcpp::Node::SharedPtr node_;
-    rclcpp::Subscription<chroma_interfaces::msg::SwarmStatus>::SharedPtr status_sub_;
-
-    std::map<std::string, chroma_interfaces::msg::SwarmStatus> latest_statuses_;
-    std::mutex status_mutex_;
-    QTimer *update_timer_;
-  };
-
-}
-
-#endif
+}  // namespace chroma_rviz_plugins

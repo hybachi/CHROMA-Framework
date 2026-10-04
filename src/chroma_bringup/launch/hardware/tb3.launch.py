@@ -1,9 +1,6 @@
 """
 tb3.launch.py
 Hardware drivers and state publishers for physical TurtleBot3 deployment.
-
-Author: H.A. Sharif
-Year: 2026
 """
 
 import os

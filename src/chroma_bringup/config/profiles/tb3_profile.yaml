@@ -5,20 +5,17 @@
     
     capabilities:
       MOBILITY: 0.6
-      VISION: 0.0
-      NETWORK: 1.0
+      PERCEPTION: 0.0
       BATTERY: 1.0
 
     thresholds:
       MOBILITY: 0.3
-      VISION: 0.0
-      NETWORK: 0.4
+      PERCEPTION: 0.0
       BATTERY: 0.15
 
     fault_impacts:
       mobility_failure: 0.0
-      vision_failure: 0.1
-      network_failure: 0.0
+      perception_failure: 0.1
       battery_failure: 0.5
     
     nav2:
@@ -40,6 +37,6 @@
       watchdogs:
         topics: ["odom", "scan"]
         types: ["nav_msgs.msg.Odometry", "sensor_msgs.msg.LaserScan"]
-        capabilities: ["MOBILITY", "VISION"]
+        capabilities: ["MOBILITY", "PERCEPTION"]
         reliability:  ["reliable", "best_effort"]
         timeouts: [2.0, 2.0]

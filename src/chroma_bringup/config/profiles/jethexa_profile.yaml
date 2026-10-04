@@ -5,12 +5,10 @@
     
     capabilities:
       MOBILITY: 1.0
-      VISION: 1.0
-      NETWORK: 1.0
+      PERCEPTION: 1.0
       BATTERY: 1.0
 
     thresholds:
       MOBILITY: 0.4
-      VISION: 0.4
-      NETWORK: 0.2
+      PERCEPTION: 0.4
       BATTERY: 0.2

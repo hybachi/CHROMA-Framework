@@ -1,0 +1,12 @@
+tasks:
+  SEARCH:
+    requires: ["PERCEPTION", "MOBILITY"]
+    min_score: 0.4
+    strategy: "area_sweep"
+    marker_type: "box"
+    
+  DELIVERY:
+    requires: ["PAYLOAD", "MOBILITY"]
+    min_score: 0.4
+    strategy: "point_to_point"
+    marker_type: "line"

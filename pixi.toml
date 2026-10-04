@@ -41,8 +41,12 @@ ros-humble-ros-ign-bridge = ">=0.244.20,<0.245"
 [target.linux-64.tasks]
 sim = "ros2 launch chroma_simulation swarm_sim.launch.py"
 rviz = "ros2 launch chroma_bringup rviz.launch.py"
-build = "colcon build --packages-ignore chroma_dashboard"
+build = "colcon build"
 purge = "pkill -9 -f 'ros2|robot_state_publisher|parameter_bridge|capability_manager|nav2_bridge|task_allocator|telemetry_bridge|jethexa|cares|gz sim' || true && ros2 daemon stop && ros2 daemon start"
+validate-config = "ros2 run chroma_core validate_configs"
+log-benchmark = "ros2 run chroma_core benchmark_logger"
+plot-benchmark = "ros2 run chroma_core plot_benchmarks"
+fault-scenario = "ros2 run chroma_core fault_scenarios"
 
 # ROBOT ONLY (linux-aarch64)
 # [target.linux-aarch64.dependencies]

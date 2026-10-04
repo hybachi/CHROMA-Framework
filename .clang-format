@@ -1,0 +1,17 @@
+---
+Language:        Cpp
+BasedOnStyle:    Google
+IndentWidth:     4
+TabWidth:        4
+ContinuationIndentWidth: 4
+NamespaceIndentation: All
+AccessModifierOffset: -4
+BreakBeforeBraces: Allman
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+IncludeBlocks: Regroup
+SortIncludes: true
+ColumnLimit:     120
+...

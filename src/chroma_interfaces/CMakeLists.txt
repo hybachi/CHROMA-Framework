@@ -13,6 +13,7 @@ find_package(geometry_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Capability.msg"
   "msg/SwarmStatus.msg"
+  "msg/SwarmLog.msg"
   "msg/Bid.msg"
   "msg/Task.msg"
   "msg/TaskAllocation.msg"
